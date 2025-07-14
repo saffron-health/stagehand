@@ -13,7 +13,7 @@ export function deepLocator(
     rawXPath: string,
   ): Locator {
     // 1 ─ strip optional 'xpath=' prefix and whitespace
-    let xpath = rawXPath.replace(/^xpath=/i, "").trim();
+    const xpath = rawXPath.replace(/^xpath=/i, "").trim();
 
     // Split the path by sequences of slashes, but keep the slashes as
     // separate elements in the array. This preserves separators like '//'.
