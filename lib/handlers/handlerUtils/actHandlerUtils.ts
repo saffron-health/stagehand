@@ -9,52 +9,52 @@ import { StagehandClickError } from "@/types/stagehandErrors";
 const IFRAME_STEP_RE = /^iframe(\[[^\]]+])?$/i;
 
 export function deepLocator(
-    root: Page | FrameLocator,
-    rawXPath: string,
-  ): Locator {
-    // 1 ─ strip optional 'xpath=' prefix and whitespace
-    const xpath = rawXPath.replace(/^xpath=/i, "").trim();
+  root: Page | FrameLocator,
+  rawXPath: string,
+): Locator {
+  // 1 ─ strip optional 'xpath=' prefix and whitespace
+  const xpath = rawXPath.replace(/^xpath=/i, "").trim();
 
-    // Split the path by sequences of slashes, but keep the slashes as
-    // separate elements in the array. This preserves separators like '//'.
-    // e.g., '//a/b' becomes ['//', 'a', '/', 'b']
-    const parts = xpath.split(/(\/+)/).filter(Boolean);
+  // Split the path by sequences of slashes, but keep the slashes as
+  // separate elements in the array. This preserves separators like '//'.
+  // e.g., '//a/b' becomes ['//', 'a', '/', 'b']
+  const parts = xpath.split(/(\/+)/).filter(Boolean);
 
-    let ctx: Page | FrameLocator = root;
-    let buffer: string[] = [];
+  let ctx: Page | FrameLocator = root;
+  let buffer: string[] = [];
 
-    const flushIntoFrame = () => {
-      if (buffer.length === 0) return;
+  const flushIntoFrame = () => {
+    if (buffer.length === 0) return;
 
-      // Join the buffered parts to form the selector for the iframe.
-      // .join('') is used because the separators are already in the buffer.
-      const selector = "xpath=" + buffer.join("");
-      ctx = (ctx as Page | FrameLocator).frameLocator(selector);
-      buffer = []; // Reset buffer for the next path segment.
-    };
+    // Join the buffered parts to form the selector for the iframe.
+    // .join('') is used because the separators are already in the buffer.
+    const selector = "xpath=" + buffer.join("");
+    ctx = (ctx as Page | FrameLocator).frameLocator(selector);
+    buffer = []; // Reset buffer for the next path segment.
+  };
 
-    // Iterate through all parts (which include both steps and their separators).
-    for (const part of parts) {
-      buffer.push(part);
+  // Iterate through all parts (which include both steps and their separators).
+  for (const part of parts) {
+    buffer.push(part);
 
-      // A "step" is a part of the path that is NOT a separator.
-      // We test if the current step (a non-slash part) is an iframe locator.
-      const isStep = !/^\/+$/.test(part);
-      if (isStep && IFRAME_STEP_RE.test(part)) {
-        flushIntoFrame();
-      }
+    // A "step" is a part of the path that is NOT a separator.
+    // We test if the current step (a non-slash part) is an iframe locator.
+    const isStep = !/^\/+$/.test(part);
+    if (isStep && IFRAME_STEP_RE.test(part)) {
+      flushIntoFrame();
     }
-
-    // If the XPath ended with an iframe, the buffer will be empty. In this case,
-    // we return a locator for the root element ('*') within the final frame.
-    if (buffer.length === 0) {
-      return (ctx as Page | FrameLocator).locator("xpath=/*");
-    }
-
-    // Join the remaining parts for the final locator.
-    const finalSelector = "xpath=" + buffer.join("");
-    return (ctx as Page | FrameLocator).locator(finalSelector);
   }
+
+  // If the XPath ended with an iframe, the buffer will be empty. In this case,
+  // we return a locator for the root element ('*') within the final frame.
+  if (buffer.length === 0) {
+    return (ctx as Page | FrameLocator).locator("xpath=/*");
+  }
+
+  // Join the remaining parts for the final locator.
+  const finalSelector = "xpath=" + buffer.join("");
+  return (ctx as Page | FrameLocator).locator(finalSelector);
+}
 
 /**
  * A mapping of playwright methods that may be chosen by the LLM to their
