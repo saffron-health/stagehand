@@ -1,32 +1,33 @@
 import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
   Content,
-  Part,
-  Tool,
   FunctionCall,
+  GoogleGenAI,
+  GoogleGenAIOptions,
+  HarmBlockThreshold,
+  HarmCategory,
+  Part,
   Schema,
+  Tool,
   Type,
 } from "@google/genai";
 import zodToJsonSchema from "zod-to-json-schema";
 
+import {
+  CreateChatCompletionResponseError,
+  StagehandError,
+} from "@/types/stagehandErrors";
 import { LogLine } from "../../types/log";
 import { AvailableModel, ClientOptions } from "../../types/model";
 import { LLMCache } from "../cache/LLMCache";
-import { validateZodSchema, toGeminiSchema, loadApiKeyFromEnv } from "../utils";
+import { loadApiKeyFromEnv, toGeminiSchema, validateZodSchema } from "../utils";
 import {
+  AnnotatedScreenshotText,
   ChatCompletionOptions,
   ChatMessage,
   CreateChatCompletionOptions,
   LLMClient,
   LLMResponse,
-  AnnotatedScreenshotText,
 } from "./LLMClient";
-import {
-  CreateChatCompletionResponseError,
-  StagehandError,
-} from "@/types/stagehandErrors";
 
 // Mapping from generic roles to Gemini roles
 const roleMap: { [key in ChatMessage["role"]]: string } = {
@@ -60,7 +61,7 @@ export class GoogleClient extends LLMClient {
   private client: GoogleGenAI;
   private cache: LLMCache | undefined;
   private enableCaching: boolean;
-  public clientOptions: ClientOptions;
+  public clientOptions: GoogleGenAIOptions;
   public hasVision: boolean;
   private logger: (message: LogLine) => void;
 
@@ -82,8 +83,16 @@ export class GoogleClient extends LLMClient {
       // Try to get the API key from the environment variable GOOGLE_API_KEY
       clientOptions.apiKey = loadApiKeyFromEnv("google_legacy", logger);
     }
-    this.clientOptions = clientOptions;
-    this.client = new GoogleGenAI({ apiKey: clientOptions.apiKey });
+    this.clientOptions = clientOptions as GoogleGenAIOptions;
+    this.client = new GoogleGenAI({
+      apiKey: this.clientOptions.apiKey,
+      vertexai: this.clientOptions.vertexai,
+      project: this.clientOptions.project,
+      location: this.clientOptions.location,
+      apiVersion: this.clientOptions.apiVersion,
+      googleAuthOptions: this.clientOptions.googleAuthOptions,
+      httpOptions: this.clientOptions.httpOptions,
+    });
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
