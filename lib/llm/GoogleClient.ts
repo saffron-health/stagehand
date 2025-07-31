@@ -19,7 +19,7 @@ import {
 import { LogLine } from "../../types/log";
 import { AvailableModel, ClientOptions } from "../../types/model";
 import { LLMCache } from "../cache/LLMCache";
-import { loadApiKeyFromEnv, toGeminiSchema, validateZodSchema } from "../utils";
+import { toGeminiSchema, validateZodSchema } from "../utils";
 import {
   AnnotatedScreenshotText,
   ChatCompletionOptions,
@@ -79,10 +79,6 @@ export class GoogleClient extends LLMClient {
     clientOptions?: ClientOptions; // Expecting { apiKey: string } here
   }) {
     super(modelName);
-    if (!clientOptions?.apiKey) {
-      // Try to get the API key from the environment variable GOOGLE_API_KEY
-      clientOptions.apiKey = loadApiKeyFromEnv("google_legacy", logger);
-    }
     this.clientOptions = clientOptions as GoogleGenAIOptions;
     this.client = new GoogleGenAI({
       apiKey: this.clientOptions.apiKey,
