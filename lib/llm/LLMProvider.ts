@@ -259,8 +259,11 @@ export class LLMProvider {
     }
   }
 
-  static getModelProvider(modelName: AvailableModel): ModelProvider {
-    if (modelName.includes("/")) {
+  static getModelProvider(
+    modelName: AvailableModel,
+    usingOriginalProvider: boolean,
+  ): ModelProvider {
+    if (modelName.includes("/") && !usingOriginalProvider) {
       const firstSlashIndex = modelName.indexOf("/");
       const subProvider = modelName.substring(0, firstSlashIndex);
       if (AISDKProviders[subProvider]) {

@@ -8,7 +8,6 @@ import { BrowserResult } from "../types/browser";
 import { EnhancedContext } from "../types/context";
 import { LogLine } from "../types/log";
 import { AvailableModel } from "../types/model";
-import type { GoogleGenAIOptions as GoogleClientOptions } from "@google/genai";
 import { BrowserContext, Page } from "../types/page";
 import {
   ConstructorParams,
@@ -584,14 +583,16 @@ export class Stagehand {
 
     let modelApiKey: string | undefined;
 
-    if (
-      !modelClientOptions?.apiKey &&
-      ((LLMProvider.getModelProvider(this.modelName) === "google" &&
-        !(modelClientOptions as GoogleClientOptions)?.vertexai) ||
-        LLMProvider.getModelProvider(this.modelName) !== "google")
-    ) {
+    const usingVertexAI =
+      "vertexai" in modelClientOptions && modelClientOptions.vertexai;
+    const provider = LLMProvider.getModelProvider(
+      this.modelName,
+      usingVertexAI,
+    );
+
+    if (!modelClientOptions?.apiKey && !usingVertexAI) {
       // If no API key is provided, try to load it from the environment
-      if (LLMProvider.getModelProvider(this.modelName) === "aisdk") {
+      if (provider === "aisdk") {
         modelApiKey = loadApiKeyFromEnv(
           this.modelName.split("/")[0],
           this.logger,
@@ -599,13 +600,13 @@ export class Stagehand {
       } else {
         // Temporary add for legacy providers
         modelApiKey =
-          LLMProvider.getModelProvider(this.modelName) === "openai"
+          provider === "openai"
             ? process.env.OPENAI_API_KEY ||
               this.llmClient?.clientOptions?.apiKey
-            : LLMProvider.getModelProvider(this.modelName) === "anthropic"
+            : provider === "anthropic"
               ? process.env.ANTHROPIC_API_KEY ||
                 this.llmClient?.clientOptions?.apiKey
-              : LLMProvider.getModelProvider(this.modelName) === "google"
+              : provider === "google"
                 ? process.env.GOOGLE_API_KEY ||
                   this.llmClient?.clientOptions?.apiKey
                 : undefined;
