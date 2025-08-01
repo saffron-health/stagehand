@@ -8,6 +8,7 @@ import { BrowserResult } from "../types/browser";
 import { EnhancedContext } from "../types/context";
 import { LogLine } from "../types/log";
 import { AvailableModel } from "../types/model";
+import type { GoogleGenAIOptions as GoogleClientOptions } from "@google/genai";
 import { BrowserContext, Page } from "../types/page";
 import {
   ConstructorParams,
@@ -583,7 +584,11 @@ export class Stagehand {
 
     let modelApiKey: string | undefined;
 
-    if (!modelClientOptions?.apiKey) {
+    if (
+      !modelClientOptions?.apiKey ||
+      (LLMProvider.getModelProvider(this.modelName) === "google" &&
+        !(modelClientOptions as GoogleClientOptions)?.vertexai)
+    ) {
       // If no API key is provided, try to load it from the environment
       if (LLMProvider.getModelProvider(this.modelName) === "aisdk") {
         modelApiKey = loadApiKeyFromEnv(
