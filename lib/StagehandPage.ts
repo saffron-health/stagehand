@@ -669,10 +669,11 @@ ${scriptContent} \
 
       const requestId = Math.random().toString(36).substring(2);
 
-      // Use provided modelName if available, otherwise use the configured llmClient
-      const llmClient: LLMClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.stagehand.llmClient;
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
 
       // Add null check for llmClient before accessing modelName
       if (!llmClient) {
@@ -773,10 +774,11 @@ ${scriptContent} \
 
       const requestId = Math.random().toString(36).substring(2);
 
-      // Use provided modelName if available, otherwise use the configured llmClient
-      const llmClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.stagehand.llmClient;
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
 
       // Add null check for llmClient before accessing modelName
       if (!llmClient) {
@@ -887,10 +889,11 @@ ${scriptContent} \
 
       const requestId = Math.random().toString(36).substring(2);
 
-      // Use provided modelName if available, otherwise use the configured llmClient
-      const llmClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.stagehand.llmClient;
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
 
       // Add null check for llmClient before accessing modelName
       if (!llmClient) {

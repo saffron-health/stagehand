@@ -585,9 +585,10 @@ export class Stagehand {
     let modelApiKey: string | undefined;
 
     if (
-      !modelClientOptions?.apiKey ||
-      (LLMProvider.getModelProvider(this.modelName) === "google" &&
-        !(modelClientOptions as GoogleClientOptions)?.vertexai)
+      !modelClientOptions?.apiKey &&
+      ((LLMProvider.getModelProvider(this.modelName) === "google" &&
+        !(modelClientOptions as GoogleClientOptions)?.vertexai) ||
+        LLMProvider.getModelProvider(this.modelName) !== "google")
     ) {
       // If no API key is provided, try to load it from the environment
       if (LLMProvider.getModelProvider(this.modelName) === "aisdk") {

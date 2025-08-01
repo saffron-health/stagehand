@@ -27,6 +27,7 @@ import { AISdkClient } from "./aisdk";
 import { AnthropicClient } from "./AnthropicClient";
 import { CerebrasClient } from "./CerebrasClient";
 import { GoogleClient } from "./GoogleClient";
+import { GoogleVertexClient } from "./GoogleVertexClient";
 import { GroqClient } from "./GroqClient";
 import { LLMClient } from "./LLMClient";
 import { OpenAIClient } from "./OpenAIClient";
@@ -96,11 +97,26 @@ const modelToProviderMap: { [key in AvailableModel]: ModelProvider } = {
   "gemini-2.5-pro": "google",
 };
 
+function isVertexAIRequest(clientOptions?: ClientOptions): boolean {
+  return !!(
+    clientOptions &&
+    "vertexai" in clientOptions &&
+    clientOptions.vertexai
+  );
+}
+
 export function getAISDKLanguageModel(
   subProvider: string,
   subModelName: string,
   apiKey?: string,
+  clientOptions?: ClientOptions,
 ) {
+  // If this is a google model with vertex AI configuration, don't use AI SDK
+  if (subProvider === "google" && isVertexAIRequest(clientOptions)) {
+    throw new Error(
+      "Vertex AI models should use GoogleVertexClient, not AI SDK",
+    );
+  }
   if (apiKey) {
     const creator = AISDKProvidersWithAPIKey[subProvider];
     if (!creator) {
@@ -164,10 +180,22 @@ export class LLMProvider {
       const subProvider = modelName.substring(0, firstSlashIndex);
       const subModelName = modelName.substring(firstSlashIndex + 1);
 
+      // Check if this is a vertex AI request for google models
+      if (subProvider === "google" && isVertexAIRequest(clientOptions)) {
+        return new GoogleVertexClient({
+          logger: this.logger,
+          enableCaching: this.enableCaching,
+          cache: this.cache,
+          modelName: modelName,
+          clientOptions,
+        });
+      }
+
       const languageModel = getAISDKLanguageModel(
         subProvider,
         subModelName,
         clientOptions?.apiKey,
+        clientOptions,
       );
 
       return new AISdkClient({
