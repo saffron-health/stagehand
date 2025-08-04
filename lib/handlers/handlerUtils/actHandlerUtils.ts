@@ -94,8 +94,7 @@ export async function scrollToNextChunk(ctx: MethodHandlerContext) {
       ({ xpath }) => {
         const elementNode = getNodeFromXpath(xpath);
         if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
-          console.warn(`Could not locate element to scroll by its height.`);
-          return Promise.resolve();
+          throw Error(`Could not locate element to scroll on.`);
         }
 
         const element = elementNode as HTMLElement;
@@ -158,8 +157,7 @@ export async function scrollToPreviousChunk(ctx: MethodHandlerContext) {
       ({ xpath }) => {
         const elementNode = getNodeFromXpath(xpath);
         if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
-          console.warn(`Could not locate element to scroll by its height.`);
-          return Promise.resolve();
+          throw Error(`Could not locate element to scroll on.`);
         }
 
         const element = elementNode as HTMLElement;
@@ -261,8 +259,7 @@ export async function scrollElementToPercentage(ctx: MethodHandlerContext) {
 
         const elementNode = getNodeFromXpath(xpath);
         if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
-          console.warn(`Could not locate element to scroll on.`);
-          return;
+          throw Error(`Could not locate element to scroll on.`);
         }
 
         const element = elementNode as HTMLElement;
