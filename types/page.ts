@@ -38,6 +38,13 @@ export interface Page extends Omit<PlaywrightPage, "on"> {
   observe(instruction: string): Promise<ObserveResult[]>;
   observe(options?: ObserveOptions): Promise<ObserveResult[]>;
 
+  perform(
+    selectors: string[],
+    method: string,
+    timeout: number,
+    description: string,
+  ): Promise<void>;
+
   on: {
     (event: "popup", listener: (page: Page) => unknown): Page;
   } & PlaywrightPage["on"];

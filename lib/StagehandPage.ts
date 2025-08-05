@@ -16,6 +16,7 @@ import { LLMClient } from "./llm/LLMClient";
 import { StagehandContext } from "./StagehandContext";
 import { EncodedId, EnhancedContext } from "../types/context";
 import { clearOverlays } from "./utils";
+import { waitUntilTruthy, actWithCache } from "./perform/helpers";
 import {
   StagehandError,
   StagehandNotInitializedError,
@@ -950,6 +951,50 @@ ${scriptContent} \
       this.stagehand.addToHistory("observe", instructionOrOptions, result);
 
       return result;
+    } catch (err: unknown) {
+      if (err instanceof StagehandError || err instanceof StagehandAPIError) {
+        throw err;
+      }
+      throw new StagehandDefaultError(err);
+    }
+  }
+
+  async perform(
+    selectors: string[],
+    method: string,
+    timeout: number,
+    description: string,
+  ): Promise<void> {
+    try {
+      for (const selector of selectors) {
+        try {
+          const locator = this.page.locator(selector);
+
+          // Wait until the locator is truthy and perform the method
+          await waitUntilTruthy(
+            locator,
+            async (locator) => {
+              // Dynamically call the method on the locator
+              const locatorObj = locator as unknown as Record<string, unknown>;
+              if (typeof locatorObj[method] === "function") {
+              await (locatorObj[method] as () => Promise<void>)();
+              return true;
+              }
+              return false;
+            },
+            timeout,
+          );
+
+          // If we get here, the action succeeded
+          return;
+        } catch {
+          // If this selector failed, continue to the next one
+          continue;
+        }
+      }
+
+      // If all selectors failed, fall back to actWithCache
+      await actWithCache(this as unknown as Page, description);
     } catch (err: unknown) {
       if (err instanceof StagehandError || err instanceof StagehandAPIError) {
         throw err;
