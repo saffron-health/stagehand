@@ -966,40 +966,59 @@ ${scriptContent} \
     description: string,
   ): Promise<void> {
     try {
-      for (const selector of selectors) {
-        try {
-          const locator = this.page.locator(selector);
+      if (selectors.length === 0) {
+        await actWithCache(this as unknown as Page, description);
+        return;
+      }
 
-          // Wait until the locator is truthy and perform the method
-          await waitUntilTruthy(
-            locator,
-            async (locator) => {
-              // Dynamically call the method on the locator
-              const locatorObj = locator as unknown as Record<string, unknown>;
-              if (typeof locatorObj[method] === "function") {
+      if (selectors.length === 1) {
+        // Single selector case - use the original logic
+        const locator = this.page.locator(selectors[0]);
+        await waitUntilTruthy(
+          locator,
+          async (locator) => {
+            const locatorObj = locator as unknown as Record<string, unknown>;
+            if (typeof locatorObj[method] === "function") {
               await (locatorObj[method] as () => Promise<void>)();
               return true;
-              }
-              return false;
-            },
-            timeout,
-          );
-
-          // If we get here, the action succeeded
-          return;
-        } catch {
-          // If this selector failed, continue to the next one
-          continue;
-        }
+            }
+            return false;
+          },
+          timeout,
+        );
+        return;
       }
 
+      // Multiple selectors - race them in parallel using locator.or()
+      const locators = selectors.map(selector => this.page.locator(selector));
+      let combinedLocator = locators[0];
+      
+      // Chain .or() calls to combine all locators
+      for (let i = 1; i < locators.length; i++) {
+        combinedLocator = combinedLocator.or(locators[i]);
+      }
+
+      // Use .first() to handle the case where multiple elements match
+      const racingLocator = combinedLocator.first();
+
+      await waitUntilTruthy(
+        racingLocator,
+        async (locator) => {
+          const locatorObj = locator as unknown as Record<string, unknown>;
+          if (typeof locatorObj[method] === "function") {
+            await (locatorObj[method] as () => Promise<void>)();
+            return true;
+          }
+          return false;
+        },
+        timeout,
+      );
+
+      // If we get here, the action succeeded
+      return;
+    } catch {
       // If all selectors failed, fall back to actWithCache
       await actWithCache(this as unknown as Page, description);
-    } catch (err: unknown) {
-      if (err instanceof StagehandError || err instanceof StagehandAPIError) {
-        throw err;
-      }
-      throw new StagehandDefaultError(err);
     }
   }
 
