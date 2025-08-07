@@ -38,12 +38,55 @@ export interface Page extends Omit<PlaywrightPage, "on"> {
   observe(instruction: string): Promise<ObserveResult[]>;
   observe(options?: ObserveOptions): Promise<ObserveResult[]>;
 
+  // TypeScript overloads for perform method
+  perform(
+    selectors: string[],
+    method: "click" | "dblclick" | "hover" | "focus" | "blur" | "press" | "type" | "fill" | "clear" | "check" | "uncheck" | "selectOption" | "selectText" | "setInputFiles" | "tap" | "dragTo" | "scrollIntoViewIfNeeded",
+    timeout: number,
+    description: string,
+  ): Promise<void>;
+  
+  perform(
+    selectors: string[],
+    method: "innerText" | "textContent" | "innerHTML" | "inputValue" | "value",
+    timeout: number,
+    description: string,
+  ): Promise<string | null>;
+  
+  perform(
+    selectors: string[],
+    method: "isVisible" | "isEnabled" | "isChecked" | "isDisabled" | "isEditable" | "isHidden",
+    timeout: number,
+    description: string,
+  ): Promise<boolean>;
+  
+  perform(
+    selectors: string[],
+    method: "count",
+    timeout: number,
+    description: string,
+  ): Promise<number>;
+  
+  perform(
+    selectors: string[],
+    method: "boundingBox",
+    timeout: number,
+    description: string,
+  ): Promise<{ x: number; y: number; width: number; height: number } | null>;
+  
+  perform(
+    selectors: string[],
+    method: `getAttribute:${string}`,
+    timeout: number,
+    description: string,
+  ): Promise<string | null>;
+  
   perform(
     selectors: string[],
     method: string,
     timeout: number,
     description: string,
-  ): Promise<void>;
+  ): Promise<unknown>;
 
   on: {
     (event: "popup", listener: (page: Page) => unknown): Page;

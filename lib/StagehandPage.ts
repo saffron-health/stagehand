@@ -1,4 +1,9 @@
-import type { CDPSession, Page as PlaywrightPage, Frame } from "playwright";
+import type {
+  CDPSession,
+  Page as PlaywrightPage,
+  Frame,
+  Locator,
+} from "playwright";
 import { z } from "zod";
 import { Page, defaultExtractSchema } from "../types/page";
 import {
@@ -30,6 +35,48 @@ import {
 import { StagehandAPIError } from "@/types/stagehandApiErrors";
 import { scriptContent } from "@/lib/dom/build/scriptContent";
 import type { Protocol } from "devtools-protocol";
+
+// Action methods that don't return values
+const ACTION_METHODS = new Set([
+  "click",
+  "dblclick",
+  "hover",
+  "focus",
+  "blur",
+  "press",
+  "type",
+  "fill",
+  "clear",
+  "check",
+  "uncheck",
+  "selectOption",
+  "selectText",
+  "setInputFiles",
+  "tap",
+  "dragTo",
+  "scrollIntoViewIfNeeded",
+]);
+
+// Extraction methods that return values
+const EXTRACTION_METHODS: Record<
+  string,
+  (locator: Locator, param?: string) => Promise<unknown>
+> = {
+  innerText: (locator) => locator.innerText(),
+  textContent: (locator) => locator.textContent(),
+  innerHTML: (locator) => locator.innerHTML(),
+  inputValue: (locator) => locator.inputValue(),
+  value: (locator) => locator.evaluate((el) => (el as HTMLInputElement).value),
+  getAttribute: (locator, attr) => locator.getAttribute(attr!),
+  isVisible: (locator) => locator.isVisible(),
+  isEnabled: (locator) => locator.isEnabled(),
+  isChecked: (locator) => locator.isChecked(),
+  isDisabled: (locator) => locator.isDisabled(),
+  isEditable: (locator) => locator.isEditable(),
+  isHidden: (locator) => locator.isHidden(),
+  boundingBox: (locator) => locator.boundingBox(),
+  count: (locator) => locator.count(),
+};
 
 async function getCurrentRootFrameId(session: CDPSession): Promise<string> {
   const { frameTree } = (await session.send(
@@ -959,50 +1006,133 @@ ${scriptContent} \
     }
   }
 
+  // TypeScript overloads for better type safety
+  async perform(
+    selectors: string[],
+    method:
+      | "click"
+      | "dblclick"
+      | "hover"
+      | "focus"
+      | "blur"
+      | "press"
+      | "type"
+      | "fill"
+      | "clear"
+      | "check"
+      | "uncheck"
+      | "selectOption"
+      | "selectText"
+      | "setInputFiles"
+      | "tap"
+      | "dragTo"
+      | "scrollIntoViewIfNeeded",
+    timeout: number,
+    description: string,
+  ): Promise<void>;
+
+  async perform(
+    selectors: string[],
+    method: "innerText" | "textContent" | "innerHTML" | "inputValue" | "value",
+    timeout: number,
+    description: string,
+  ): Promise<string | null>;
+
+  async perform(
+    selectors: string[],
+    method:
+      | "isVisible"
+      | "isEnabled"
+      | "isChecked"
+      | "isDisabled"
+      | "isEditable"
+      | "isHidden",
+    timeout: number,
+    description: string,
+  ): Promise<boolean>;
+
+  async perform(
+    selectors: string[],
+    method: "count",
+    timeout: number,
+    description: string,
+  ): Promise<number>;
+
+  async perform(
+    selectors: string[],
+    method: "boundingBox",
+    timeout: number,
+    description: string,
+  ): Promise<{ x: number; y: number; width: number; height: number } | null>;
+
+  async perform(
+    selectors: string[],
+    method: `getAttribute:${string}`,
+    timeout: number,
+    description: string,
+  ): Promise<string | null>;
+
   /**
-   * Performs an action on the first available element from a list of selectors.
-   * 
+   * Performs an action or extraction on the first available element from a list of selectors.
+   *
    * This method implements a racing mechanism that tries multiple selectors in parallel
-   * and performs the specified action on whichever element becomes available first.
-   * 
+   * and performs the specified action/extraction on whichever element becomes available first.
+   *
    * **How it works:**
-   * 
-   * 1. **Empty selectors**: If no selectors provided, falls back to `actWithCache`
+   *
+   * 1. **Empty selectors**: If no selectors provided, falls back to `actWithCache` (actions) or AI extract (extractions)
    * 2. **Single selector**: Uses direct locator approach for optimal performance
    * 3. **Multiple selectors**: Creates a racing locator using Playwright's `locator.or()`
    *    - All selectors are combined into a single locator that matches any of them
    *    - Uses `.first()` to ensure only one element is acted upon if multiple match
-   *    - Waits for any selector to become available and performs the action immediately
-   * 
+   *    - Waits for any selector to become available and performs the action/extraction immediately
+   *
    * **Parallel Racing Logic:**
    * - Creates individual locators for each selector: `page.locator(selector1)`, `page.locator(selector2)`, etc.
    * - Combines them using chained `.or()` calls: `locator1.or(locator2).or(locator3)...`
    * - The combined locator waits for ANY of the underlying selectors to match
-   * - As soon as one element becomes available, the action is performed on it
+   * - As soon as one element becomes available, the action/extraction is performed on it
    * - This provides true parallel racing instead of sequential fallback
-   * 
+   *
    * **Fallback Mechanism:**
-   * - If all selectors fail to find elements within the timeout, falls back to `actWithCache`
-   * - `actWithCache` uses LLM-based element detection as a last resort
-   * 
+   * - If all selectors fail to find elements within the timeout, falls back to intelligent alternatives:
+   *   - Actions: `actWithCache` uses LLM-based element detection
+   *   - Extractions: AI extract function uses accessibility tree analysis
+   *
    * **Error Handling:**
    * - Catches all errors during selector racing and gracefully falls back
    * - Does not propagate StagehandError/StagehandAPIError up the stack from fallback
-   * 
+   *
    * @param selectors - Array of CSS selectors to race against each other
-   * @param method - The method name to call on the winning locator (e.g., 'click', 'fill', 'hover')
+   * @param method - The method name to call on the winning locator (e.g., 'click', 'fill', 'hover', 'innerText', 'textContent', 'getAttribute:href')
    * @param timeout - Maximum time to wait for any selector to become available (ms)
-   * @param description - Human-readable description of the action for fallback LLM context
-   * @returns Promise that resolves when the action is successfully performed
-   * 
+   * @param description - Human-readable description of the action/extraction for fallback LLM context
+   * @returns Promise that resolves when the action is performed (void) or with extracted data (string|null|etc)
+   *
    * @example
    * ```typescript
-   * // Race between multiple possible submit buttons
+   * // Action: Race between multiple possible submit buttons
    * await page.perform(
    *   ['button[type="submit"]', '.submit-btn', '#submit'],
    *   'click',
    *   5000,
    *   'click the submit button'
+   * );
+   *
+   * // Extraction: Get text from first available heading
+   * const title = await page.perform(
+   *   ['h1', '.title', '#mainTitle'],
+   *   'innerText',
+   *   3000,
+   *   'extract main heading'
+   * );
+   *
+   * // Extraction with parameter: Get href attribute
+   * const href = await page.perform(
+   *   ['a.special-link'],
+   *   'getAttribute:href',
+   *   2000,
+   *   'extract link href'
    * );
    * ```
    */
@@ -1011,61 +1141,108 @@ ${scriptContent} \
     method: string,
     timeout: number,
     description: string,
-  ): Promise<void> {
+  ): Promise<unknown> {
     try {
-      if (selectors.length === 0) {
-        await actWithCache(this as unknown as Page, description);
-        return;
+      // Parse method and optional parameter (e.g., "getAttribute:href")
+      const [methodName, param] = method.split(":");
+
+      // Determine if this is an action or extraction method
+      const isAction = ACTION_METHODS.has(methodName);
+      const isExtraction = EXTRACTION_METHODS[methodName] !== undefined;
+
+      if (!isAction && !isExtraction) {
+        throw new StagehandError(
+          `Unsupported perform method: "${method}". ` +
+            `Supported action methods: ${Array.from(ACTION_METHODS).join(", ")}. ` +
+            `Supported extraction methods: ${Object.keys(EXTRACTION_METHODS).join(", ")}.`,
+        );
       }
 
+      // Handle empty selectors - fallback immediately
+      if (selectors.length === 0) {
+        if (isAction) {
+          await actWithCache(this as unknown as Page, description);
+          return;
+        } else {
+          // Extraction fallback to AI
+          const aiResult = await this.extract({
+            instruction: description,
+          });
+          return aiResult;
+        }
+      }
+
+      // Build racing locator
+      let racingLocator: Locator;
       if (selectors.length === 1) {
-        // Single selector case - use the original logic
-        const locator = this.page.locator(selectors[0]);
+        racingLocator = this.page.locator(selectors[0]);
+      } else {
+        // Multiple selectors - race them in parallel using locator.or()
+        const locators = selectors.map((selector) =>
+          this.page.locator(selector),
+        );
+        let combinedLocator = locators[0];
+
+        // Chain .or() calls to combine all locators
+        for (let i = 1; i < locators.length; i++) {
+          combinedLocator = combinedLocator.or(locators[i]);
+        }
+
+        // Use .first() to handle the case where multiple elements match
+        racingLocator = combinedLocator.first();
+      }
+
+      // Execute action or extraction
+      if (isAction) {
+        // Action path - existing logic
         await waitUntilTruthy(
-          locator,
+          racingLocator,
           async (locator) => {
             const locatorObj = locator as unknown as Record<string, unknown>;
-            if (typeof locatorObj[method] === "function") {
-              await (locatorObj[method] as () => Promise<void>)();
+            if (typeof locatorObj[methodName] === "function") {
+              await (locatorObj[methodName] as () => Promise<void>)();
               return true;
             }
             return false;
           },
           timeout,
         );
-        return;
+        return; // void return for actions
+      } else {
+        // Extraction path - new logic
+        const extractor = EXTRACTION_METHODS[methodName];
+        const result = await waitUntilTruthy(
+          racingLocator,
+          async (locator) => {
+            const value = await extractor(locator, param);
+            // Treat empty strings, null, undefined as "not found" so waitUntilTruthy keeps trying
+            return value !== null && value !== undefined && value !== ""
+              ? value
+              : false;
+          },
+          timeout,
+        );
+        return result;
       }
-
-      // Multiple selectors - race them in parallel using locator.or()
-      const locators = selectors.map(selector => this.page.locator(selector));
-      let combinedLocator = locators[0];
-      
-      // Chain .or() calls to combine all locators
-      for (let i = 1; i < locators.length; i++) {
-        combinedLocator = combinedLocator.or(locators[i]);
-      }
-
-      // Use .first() to handle the case where multiple elements match
-      const racingLocator = combinedLocator.first();
-
-      await waitUntilTruthy(
-        racingLocator,
-        async (locator) => {
-          const locatorObj = locator as unknown as Record<string, unknown>;
-          if (typeof locatorObj[method] === "function") {
-            await (locatorObj[method] as () => Promise<void>)();
-            return true;
-          }
-          return false;
-        },
-        timeout,
-      );
-
-      // If we get here, the action succeeded
-      return;
     } catch {
-      // If all selectors failed, fall back to actWithCache
-      await actWithCache(this as unknown as Page, description);
+      // Fallback handling
+      const [methodName] = method.split(":");
+      const isAction = ACTION_METHODS.has(methodName);
+
+      if (isAction) {
+        // Action fallback - use existing actWithCache
+        await actWithCache(this as unknown as Page, description);
+        return;
+      } else {
+        // Extraction fallback - use AI extract
+        const instruction =
+          description || `Extract ${method} from ${selectors.join(" or ")}`;
+        const aiResult = await this.extract({
+          instruction,
+          selector: selectors.length > 0 ? selectors[0] : undefined,
+        });
+        return aiResult;
+      }
     }
   }
 
