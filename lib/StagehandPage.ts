@@ -959,6 +959,53 @@ ${scriptContent} \
     }
   }
 
+  /**
+   * Performs an action on the first available element from a list of selectors.
+   * 
+   * This method implements a racing mechanism that tries multiple selectors in parallel
+   * and performs the specified action on whichever element becomes available first.
+   * 
+   * **How it works:**
+   * 
+   * 1. **Empty selectors**: If no selectors provided, falls back to `actWithCache`
+   * 2. **Single selector**: Uses direct locator approach for optimal performance
+   * 3. **Multiple selectors**: Creates a racing locator using Playwright's `locator.or()`
+   *    - All selectors are combined into a single locator that matches any of them
+   *    - Uses `.first()` to ensure only one element is acted upon if multiple match
+   *    - Waits for any selector to become available and performs the action immediately
+   * 
+   * **Parallel Racing Logic:**
+   * - Creates individual locators for each selector: `page.locator(selector1)`, `page.locator(selector2)`, etc.
+   * - Combines them using chained `.or()` calls: `locator1.or(locator2).or(locator3)...`
+   * - The combined locator waits for ANY of the underlying selectors to match
+   * - As soon as one element becomes available, the action is performed on it
+   * - This provides true parallel racing instead of sequential fallback
+   * 
+   * **Fallback Mechanism:**
+   * - If all selectors fail to find elements within the timeout, falls back to `actWithCache`
+   * - `actWithCache` uses LLM-based element detection as a last resort
+   * 
+   * **Error Handling:**
+   * - Catches all errors during selector racing and gracefully falls back
+   * - Does not propagate StagehandError/StagehandAPIError up the stack from fallback
+   * 
+   * @param selectors - Array of CSS selectors to race against each other
+   * @param method - The method name to call on the winning locator (e.g., 'click', 'fill', 'hover')
+   * @param timeout - Maximum time to wait for any selector to become available (ms)
+   * @param description - Human-readable description of the action for fallback LLM context
+   * @returns Promise that resolves when the action is successfully performed
+   * 
+   * @example
+   * ```typescript
+   * // Race between multiple possible submit buttons
+   * await page.perform(
+   *   ['button[type="submit"]', '.submit-btn', '#submit'],
+   *   'click',
+   *   5000,
+   *   'click the submit button'
+   * );
+   * ```
+   */
   async perform(
     selectors: string[],
     method: string,
