@@ -107,8 +107,9 @@ export async function deepLocatorWithShadow(
   // 1 ─ strip optional 'xpath=' prefix and whitespace
   xpath = xpath.replace(/^xpath=/i, "").trim();
 
-  // 2 ─ prepend with slash if not already included
-  if (!xpath.startsWith("/")) xpath = "/" + xpath;
+  // Note: We don't force prepending a slash here because:
+  // - Absolute paths already start with / or //
+  // - Relative paths should remain relative to maintain their intended behavior
 
   // Split the path by sequences of slashes, but keep the slashes as
   // separate elements in the array. This preserves separators like '//'.
@@ -119,14 +120,37 @@ export async function deepLocatorWithShadow(
   let buffer: string[] = [];
   let elementScoped = false;
 
-  const xp = () => (elementScoped ? "xpath=./" : "xpath=/");
+  // We need to determine the appropriate xpath prefix based on the buffer contents
+  // and the current context (element-scoped vs page/frame-scoped)
+  const getXpathPrefix = () => {
+    if (elementScoped) {
+      // When element-scoped, we need to make the path relative to current element
+      // Check the first part in buffer to see if it starts with // or /
+      if (buffer.length > 0 && buffer[0] === "//") {
+        return "xpath=.//"; // Make // relative to current element
+      } else if (buffer.length > 0 && buffer[0] === "/") {
+        return "xpath=./"; // Make / relative to current element
+      } else {
+        return "xpath=./"; // Already relative, add ./ prefix
+      }
+    } else {
+      // When page/frame-scoped, preserve the original path structure from buffer
+      if (buffer.length > 0 && buffer[0] === "//") {
+        return "xpath=//"; // Search anywhere in document
+      } else if (buffer.length > 0 && buffer[0] === "/") {
+        return "xpath=/"; // Search from document root
+      } else {
+        return "xpath=./"; // Relative to current context
+      }
+    }
+  };
 
   const flushIntoFrame = () => {
     if (buffer.length === 0) return;
 
     // Join the buffered parts to form the selector for the iframe.
     // .join('') is used because the separators are already in the buffer.
-    const selector = xp() + buffer.join("");
+    const selector = getXpathPrefix() + buffer.join("");
     ctx = (ctx as Page | FrameLocator | Locator).frameLocator(selector);
     buffer = []; // Reset buffer for the next path segment.
     elementScoped = false;
@@ -137,7 +161,7 @@ export async function deepLocatorWithShadow(
 
     // Join the buffered parts to form the selector for the locator.
     // .join('') is used because the separators are already in the buffer.
-    const selector = xp() + buffer.join("");
+    const selector = getXpathPrefix() + buffer.join("");
     ctx = (ctx as Page | FrameLocator | Locator).locator(selector);
     buffer = []; // Reset buffer for the next path segment.
     elementScoped = true;
@@ -188,7 +212,7 @@ export async function deepLocatorWithShadow(
   }
 
   // Join the remaining parts for the final locator.
-  const finalSelector = xp() + buffer.join("");
+  const finalSelector = getXpathPrefix() + buffer.join("");
   return (ctx as Page | FrameLocator | Locator).locator(finalSelector);
 }
 
