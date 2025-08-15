@@ -1,7 +1,7 @@
 import type { ClientOptions as AnthropicClientOptions } from "@anthropic-ai/sdk";
 import type { GoogleGenAIOptions as GoogleClientOptions } from "@google/genai";
 import type { ClientOptions as OpenAIClientOptions } from "openai";
-import { z } from "zod";
+import { z } from "zod/v3";
 
 export const AvailableModelSchema = z.enum([
   "gpt-4.1",

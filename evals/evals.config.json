@@ -398,6 +398,70 @@
     {
       "name": "heal_custom_dropdown",
       "categories": ["act"]
+    },
+    {
+      "name": "agent/trivago",
+      "categories": ["agent"]
+    },
+    {
+      "name": "agent/google_maps",
+      "categories": ["agent"]
+    },
+    {
+      "name": "agent/google_maps_2",
+      "categories": ["agent"]
+    },
+    {
+      "name": "agent/youtube",
+      "categories": ["agent"]
+    },
+    {
+      "name": "agent/sign_in",
+      "categories": ["agent"]
+    },
+    {
+      "name": "osr_in_oopif",
+      "categories": ["act"]
+    },
+    {
+      "name": "csr_in_oopif",
+      "categories": ["act"]
+    },
+    {
+      "name": "csr_in_spif",
+      "categories": ["act"]
+    },
+    {
+      "name": "csr_in_spif",
+      "categories": ["act"]
+    },
+    {
+      "name": "spif_in_osr",
+      "categories": ["act"]
+    },
+    {
+      "name": "oopif_in_osr",
+      "categories": ["act"]
+    },
+    {
+      "name": "spif_in_csr",
+      "categories": ["act"]
+    },
+    {
+      "name": "oopif_in_csr",
+      "categories": ["act"]
+    },
+    {
+      "name": "osr_in_spif",
+      "categories": ["act"]
+    },
+    {
+      "name": "namespace_xpath",
+      "categories": ["act"]
+    },
+    {
+      "name": "iframe_scroll",
+      "categories": ["act"]
     }
   ]
 }
