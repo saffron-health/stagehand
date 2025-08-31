@@ -2,7 +2,6 @@ import {
   CoreAssistantMessage,
   CoreMessage,
   CoreSystemMessage,
-  CoreTool,
   CoreUserMessage,
   generateObject,
   generateText,
@@ -10,12 +9,13 @@ import {
   LanguageModel,
   NoObjectGeneratedError,
   TextPart,
+  ToolSet,
 } from "ai";
-import { CreateChatCompletionOptions, LLMClient } from "./LLMClient";
+import { ChatCompletion } from "openai/resources";
 import { LogLine } from "../../types/log";
 import { AvailableModel } from "../../types/model";
-import { ChatCompletion } from "openai/resources";
 import { LLMCache } from "../cache/LLMCache";
+import { CreateChatCompletionOptions, LLMClient } from "./LLMClient";
 
 export class AISdkClient extends LLMClient {
   public type = "aisdk" as const;
@@ -51,7 +51,20 @@ export class AISdkClient extends LLMClient {
       level: 2,
       auxiliary: {
         options: {
-          value: JSON.stringify(options),
+          value: JSON.stringify({
+            ...options,
+            image: undefined,
+            messages: options.messages.map((msg) => ({
+              ...msg,
+              content: Array.isArray(msg.content)
+                ? msg.content.map((c) =>
+                    "image_url" in c
+                      ? { ...c, image_url: { url: "[IMAGE_REDACTED]" } }
+                      : c,
+                  )
+                : msg.content,
+            })),
+          }),
           type: "object",
         },
         modelName: {
@@ -158,12 +171,22 @@ export class AISdkClient extends LLMClient {
     });
 
     let objectResponse: Awaited<ReturnType<typeof generateObject>>;
+    const isGPT5 = this.model.modelId.includes("gpt-5");
     if (options.response_model) {
       try {
         objectResponse = await generateObject({
           model: this.model,
           messages: formattedMessages,
           schema: options.response_model.schema,
+          temperature: options.temperature,
+          providerOptions: isGPT5
+            ? {
+                openai: {
+                  textVerbosity: "low", // Making these the default for gpt-5 for now
+                  reasoningEffort: "minimal",
+                },
+              }
+            : undefined,
         });
       } catch (err) {
         if (NoObjectGeneratedError.isInstance(err)) {
@@ -224,7 +247,19 @@ export class AISdkClient extends LLMClient {
               type: "string",
             },
             cacheOptions: {
-              value: JSON.stringify(cacheOptions),
+              value: JSON.stringify({
+                ...cacheOptions,
+                messages: cacheOptions.messages.map((msg) => ({
+                  ...msg,
+                  content: Array.isArray(msg.content)
+                    ? msg.content.map((c) =>
+                        "image_url" in c
+                          ? { ...c, image_url: { url: "[IMAGE_REDACTED]" } }
+                          : c,
+                      )
+                    : msg.content,
+                })),
+              }),
               type: "object",
             },
             response: {
@@ -239,10 +274,15 @@ export class AISdkClient extends LLMClient {
       this.logger?.({
         category: "aisdk",
         message: "response",
-        level: 2,
+        level: 1,
         auxiliary: {
           response: {
-            value: JSON.stringify(objectResponse),
+            value: JSON.stringify({
+              object: objectResponse.object,
+              usage: objectResponse.usage,
+              finishReason: objectResponse.finishReason,
+              // Omit request and response properties that might contain images
+            }),
             type: "object",
           },
           requestId: {
@@ -255,23 +295,61 @@ export class AISdkClient extends LLMClient {
       return result;
     }
 
-    const tools: Record<string, CoreTool> = {};
-
-    for (const rawTool of options.tools ?? []) {
-      tools[rawTool.name] = {
-        description: rawTool.description,
-        parameters: rawTool.parameters,
-      };
+    const tools: ToolSet = {};
+    if (options.tools && options.tools.length > 0) {
+      for (const tool of options.tools) {
+        tools[tool.name] = {
+          description: tool.description,
+          parameters: tool.parameters,
+        };
+      }
     }
 
     const textResponse = await generateText({
       model: this.model,
       messages: formattedMessages,
-      tools,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
+      toolChoice:
+        Object.keys(tools).length > 0
+          ? options.tool_choice === "required"
+            ? "required"
+            : options.tool_choice === "none"
+              ? "none"
+              : "auto"
+          : undefined,
+      temperature: options.temperature,
     });
 
+    // Transform AI SDK response to match LLMResponse format expected by operator handler
+    const transformedToolCalls = (textResponse.toolCalls || []).map(
+      (toolCall) => ({
+        id:
+          toolCall.toolCallId ||
+          `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: "function",
+        function: {
+          name: toolCall.toolName,
+          arguments: JSON.stringify(toolCall.args),
+        },
+      }),
+    );
+
     const result = {
-      data: textResponse.text,
+      id: `chatcmpl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: this.model.modelId,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: textResponse.text || null,
+            tool_calls: transformedToolCalls,
+          },
+          finish_reason: textResponse.finishReason || "stop",
+        },
+      ],
       usage: {
         prompt_tokens: textResponse.usage.promptTokens ?? 0,
         completion_tokens: textResponse.usage.completionTokens ?? 0,
@@ -290,7 +368,19 @@ export class AISdkClient extends LLMClient {
             type: "string",
           },
           cacheOptions: {
-            value: JSON.stringify(cacheOptions),
+            value: JSON.stringify({
+              ...cacheOptions,
+              messages: cacheOptions.messages.map((msg) => ({
+                ...msg,
+                content: Array.isArray(msg.content)
+                  ? msg.content.map((c) =>
+                      "image_url" in c
+                        ? { ...c, image_url: { url: "[IMAGE_REDACTED]" } }
+                        : c,
+                    )
+                  : msg.content,
+              })),
+            }),
             type: "object",
           },
           response: {
@@ -308,7 +398,12 @@ export class AISdkClient extends LLMClient {
       level: 2,
       auxiliary: {
         response: {
-          value: JSON.stringify(textResponse),
+          value: JSON.stringify({
+            text: textResponse.text,
+            usage: textResponse.usage,
+            finishReason: textResponse.finishReason,
+            // Omit request and response properties that might contain images
+          }),
           type: "object",
         },
         requestId: {

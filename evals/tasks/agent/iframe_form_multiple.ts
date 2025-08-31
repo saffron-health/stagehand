@@ -6,15 +6,10 @@ export const iframe_form_multiple: EvalFunction = async ({
   sessionUrl,
   stagehand,
   logger,
-  modelName,
+  agent,
 }) => {
   try {
     await stagehand.page.goto("https://tucowsdomains.com/abuse-form/phishing/");
-
-    const agent = stagehand.agent({
-      provider: modelName.startsWith("claude") ? "anthropic" : "openai",
-      model: modelName,
-    });
 
     const agentResult = await agent.execute({
       instruction:
@@ -25,13 +20,18 @@ export const iframe_form_multiple: EvalFunction = async ({
 
     await stagehand.page.mouse.wheel(0, -1000);
     const evaluator = new Evaluator(stagehand);
-    const results = await evaluator.batchEvaluate({
+    const results = await evaluator.batchAsk({
       questions: [
-        "Is the form name input filled with 'John Smith'?",
-        "Is the form email input filled with 'john.smith@example.com'?",
-        "Is the 'Are you the domain owner?' option selected as 'No'?",
+        { question: "Is the form name input filled with 'John Smith'?" },
+        {
+          question:
+            "Is the form email input filled with 'john.smith@example.com'?",
+        },
+        {
+          question:
+            "Is the 'Are you the domain owner?' option selected as 'No'?",
+        },
       ],
-      strictResponse: true,
     });
 
     for (const r of results) {

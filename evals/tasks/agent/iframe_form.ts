@@ -6,15 +6,10 @@ export const iframe_form: EvalFunction = async ({
   sessionUrl,
   stagehand,
   logger,
-  modelName,
+  agent,
 }) => {
   try {
     await stagehand.page.goto("https://tucowsdomains.com/abuse-form/phishing/");
-
-    const agent = stagehand.agent({
-      provider: "anthropic",
-      model: modelName,
-    });
 
     const agentResult = await agent.execute({
       instruction: "Fill in the form name with 'John Smith'",
@@ -24,9 +19,8 @@ export const iframe_form: EvalFunction = async ({
 
     await stagehand.page.mouse.wheel(0, -1000);
     const evaluator = new Evaluator(stagehand);
-    const result = await evaluator.evaluate({
+    const result = await evaluator.ask({
       question: "Is the form name input filled with 'John Smith'?",
-      strictResponse: true,
     });
 
     if (result.evaluation !== "YES" && result.evaluation !== "NO") {
@@ -46,9 +40,9 @@ export const iframe_form: EvalFunction = async ({
     logger.log(agentResult2);
 
     await stagehand.page.mouse.wheel(0, -1000);
-    const result2 = await evaluator.evaluate({
+    const result2 = await evaluator.ask({
       question: "Is the form email input filled with 'john.smith@example.com'?",
-      strictResponse: true,
+      screenshot: true,
     });
 
     if (result2.evaluation !== "YES" && result2.evaluation !== "NO") {
