@@ -1,209 +1,58 @@
 import { Page, Locator, FrameLocator } from "playwright";
 import { PlaywrightCommandException } from "../../../types/playwright";
 import { StagehandPage } from "../../StagehandPage";
+import { getNodeFromXpath } from "@/lib/dom/utils";
 import { Logger } from "../../../types/log";
 import { MethodHandlerContext } from "@/types/act";
-import {
-  StagehandClickError,
-  StagehandShadowRootMissingError,
-  StagehandShadowSegmentEmptyError,
-  StagehandShadowSegmentNotFoundError,
-} from "@/types/stagehandErrors";
+import { StagehandClickError } from "@/types/stagehandErrors";
 
 const IFRAME_STEP_RE = /^iframe(\[[^\]]+])?$/i;
 
-function stepToCss(step: string): string {
-  const m = step.match(/^([a-zA-Z*][\w-]*)(?:\[(\d+)])?$/);
-  if (!m) return step;
-  const [, tag, idxRaw] = m;
-  const idx = idxRaw ? Number(idxRaw) : null;
-  if (tag === "*") return idx ? `*:nth-child(${idx})` : `*`;
-  return idx ? `${tag}:nth-of-type(${idx})` : tag;
-}
-
-const buildDirect = (steps: string[]) => steps.map(stepToCss).join(" > ");
-const buildDesc = (steps: string[]) => steps.map(stepToCss).join(" ");
-
-/** Resolve one contiguous shadow segment and return a stable Locator. */
-async function resolveShadowSegment(
-  hostLoc: Locator,
-  shadowSteps: string[],
-  attr = "data-__stagehand-id",
-  timeout = 1500,
-): Promise<Locator> {
-  const direct = buildDirect(shadowSteps);
-  const desc = buildDesc(shadowSteps);
-
-  type Result = { id: string | null; noRoot: boolean };
-
-  const { id, noRoot } = await hostLoc.evaluate<
-    Result,
-    { direct: string; desc: string; attr: string; timeout: number }
-  >(
-    (host, { direct, desc, attr, timeout }) => {
-      interface StagehandClosedAccess {
-        getClosedRoot?: (h: Element) => ShadowRoot | undefined;
-      }
-      const backdoor = (
-        window as Window & {
-          __stagehand__?: StagehandClosedAccess;
-        }
-      ).__stagehand__;
-
-      const root =
-        (host as HTMLElement).shadowRoot ?? backdoor?.getClosedRoot?.(host);
-      if (!root) return { id: null, noRoot: true };
-
-      const tryFind = () =>
-        (root.querySelector(direct) as Element | null) ??
-        (root.querySelector(desc) as Element | null);
-
-      return new Promise<Result>((resolve) => {
-        const mark = (el: Element): Result => {
-          let v = el.getAttribute(attr);
-          if (!v) {
-            v =
-              "sh_" +
-              Math.random().toString(36).slice(2) +
-              Date.now().toString(36);
-            el.setAttribute(attr, v);
-          }
-          return { id: v, noRoot: false };
-        };
-
-        const first = tryFind();
-        if (first) return resolve(mark(first));
-
-        const start = Date.now();
-        const tick = () => {
-          const el = tryFind();
-          if (el) return resolve(mark(el));
-          if (Date.now() - start >= timeout)
-            return resolve({ id: null, noRoot: false });
-          setTimeout(tick, 50);
-        };
-        tick();
-      });
-    },
-    { direct, desc, attr, timeout },
-  );
-
-  if (noRoot) {
-    throw new StagehandShadowRootMissingError(
-      `segment='${shadowSteps.join("/")}'`,
-    );
-  }
-  if (!id) {
-    throw new StagehandShadowSegmentNotFoundError(shadowSteps.join("/"));
-  }
-
-  return hostLoc.locator(`stagehand=${id}`);
-}
-
-export async function deepLocatorWithShadow(
+export function deepLocator(
   root: Page | FrameLocator,
-  xpath: string,
-): Promise<Locator> {
-  // 1 ─ prepend with slash if not already included
-  if (!xpath.startsWith("/")) xpath = "/" + xpath;
-  const tokens = xpath.split("/"); // keep "" from "//"
+  rawXPath: string,
+): Locator {
+  // 1 ─ strip optional 'xpath=' prefix and whitespace
+  const xpath = rawXPath.replace(/^xpath=/i, "").trim();
 
-  let ctx: Page | FrameLocator | Locator = root;
-  let buffer: string[] = [];
-  let elementScoped = false;
+  // Split the path by sequences of slashes, but keep the slashes as
+  // separate elements in the array. This preserves separators like '//'.
+  // e.g., '//a/b' becomes ['//', 'a', '/', 'b']
+  const parts = xpath.split(/(\/+)/).filter(Boolean);
 
-  const xp = () => (elementScoped ? "xpath=./" : "xpath=/");
-
-  const flushIntoFrame = () => {
-    if (!buffer.length) return;
-    ctx = (ctx as Page | FrameLocator | Locator).frameLocator(
-      xp() + buffer.join("/"),
-    );
-    buffer = [];
-    elementScoped = false;
-  };
-
-  const flushIntoLocator = () => {
-    if (!buffer.length) return;
-    ctx = (ctx as Page | FrameLocator | Locator).locator(
-      xp() + buffer.join("/"),
-    );
-    buffer = [];
-    elementScoped = true;
-  };
-
-  for (let i = 1; i < tokens.length; i++) {
-    const step = tokens[i];
-
-    // Shadow hop: “//”
-    if (step === "") {
-      flushIntoLocator();
-
-      // collect full shadow segment until next hop/iframe/end
-      const seg: string[] = [];
-      let j = i + 1;
-      for (; j < tokens.length; j++) {
-        const t = tokens[j];
-        if (t === "" || IFRAME_STEP_RE.test(t)) break;
-        seg.push(t);
-      }
-      if (!seg.length) throw new StagehandShadowSegmentEmptyError();
-
-      // resolve inside the shadow root
-      ctx = await resolveShadowSegment(ctx as Locator, seg);
-      elementScoped = true;
-
-      i = j - 1;
-      continue;
-    }
-
-    // Normal DOM step
-    buffer.push(step);
-
-    // iframe hop → descend into frame
-    if (IFRAME_STEP_RE.test(step)) flushIntoFrame();
-  }
-
-  if (buffer.length === 0) {
-    // If we’re already element-scoped, we already have the final Locator.
-    if (elementScoped) return ctx as Locator;
-
-    // Otherwise (page/frame scoped), return the root element of the current doc.
-    return (ctx as Page | FrameLocator).locator("xpath=/");
-  }
-
-  // Otherwise, resolve the remaining buffered steps.
-  return (ctx as Page | FrameLocator | Locator).locator(
-    xp() + buffer.join("/"),
-  );
-}
-
-export function deepLocator(root: Page | FrameLocator, xpath: string): Locator {
-  // 1 ─ prepend with slash if not already included
-  if (!xpath.startsWith("/")) xpath = "/" + xpath;
-
-  // 2 ─ split into steps, accumulate until we hit an iframe step
-  const steps = xpath.split("/").filter(Boolean); // tokens
   let ctx: Page | FrameLocator = root;
   let buffer: string[] = [];
 
   const flushIntoFrame = () => {
     if (buffer.length === 0) return;
-    const selector = "xpath=/" + buffer.join("/");
+
+    // Join the buffered parts to form the selector for the iframe.
+    // .join('') is used because the separators are already in the buffer.
+    const selector = "xpath=" + buffer.join("");
     ctx = (ctx as Page | FrameLocator).frameLocator(selector);
-    buffer = [];
+    buffer = []; // Reset buffer for the next path segment.
   };
 
-  for (const step of steps) {
-    buffer.push(step);
-    if (IFRAME_STEP_RE.test(step)) {
-      // we've included the <iframe> element in buffer ⇒ descend
+  // Iterate through all parts (which include both steps and their separators).
+  for (const part of parts) {
+    buffer.push(part);
+
+    // A "step" is a part of the path that is NOT a separator.
+    // We test if the current step (a non-slash part) is an iframe locator.
+    const isStep = !/^\/+$/.test(part);
+    if (isStep && IFRAME_STEP_RE.test(part)) {
       flushIntoFrame();
     }
   }
 
-  // 3 ─ whatever is left in buffer addresses the target *inside* the last ctx
-  const finalSelector = "xpath=/" + buffer.join("/");
+  // If the XPath ended with an iframe, the buffer will be empty. In this case,
+  // we return a locator for the root element ('*') within the final frame.
+  if (buffer.length === 0) {
+    return (ctx as Page | FrameLocator).locator("xpath=/*");
+  }
+
+  // Join the remaining parts for the final locator.
+  const finalSelector = "xpath=" + buffer.join("");
   return (ctx as Page | FrameLocator).locator(finalSelector);
 }
 
@@ -229,7 +78,7 @@ export const methodHandlerMap: Record<
 };
 
 export async function scrollToNextChunk(ctx: MethodHandlerContext) {
-  const { locator, logger, xpath } = ctx;
+  const { stagehandPage, xpath, logger } = ctx;
 
   logger({
     category: "action",
@@ -241,45 +90,40 @@ export async function scrollToNextChunk(ctx: MethodHandlerContext) {
   });
 
   try {
-    await locator.evaluate(
-      (element) => {
-        const waitForScrollEnd = (el: HTMLElement | Element) =>
-          new Promise<void>((resolve) => {
-            let last = el.scrollTop ?? 0;
-            const check = () => {
-              const cur = el.scrollTop ?? 0;
-              if (cur === last) return resolve();
-              last = cur;
-              requestAnimationFrame(check);
-            };
-            requestAnimationFrame(check);
-          });
-
-        const tagName = element.tagName.toLowerCase();
-
-        if (tagName === "html" || tagName === "body") {
-          const height = window.visualViewport?.height ?? window.innerHeight;
-
-          window.scrollBy({ top: height, left: 0, behavior: "smooth" });
-
-          const scrollingRoot = (document.scrollingElement ??
-            document.documentElement) as HTMLElement;
-
-          return waitForScrollEnd(scrollingRoot);
+    await stagehandPage.page.evaluate(
+      ({ xpath }) => {
+        const elementNode = getNodeFromXpath(xpath);
+        if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+          throw Error(`Could not locate element to scroll on.`);
         }
 
-        const height = (element as HTMLElement).getBoundingClientRect().height;
+        const element = elementNode as HTMLElement;
+        const tagName = element.tagName.toLowerCase();
+        let height: number;
 
-        (element as HTMLElement).scrollBy({
-          top: height,
-          left: 0,
-          behavior: "smooth",
-        });
+        if (tagName === "html" || tagName === "body") {
+          height = window.visualViewport.height;
+          window.scrollBy({
+            top: height,
+            left: 0,
+            behavior: "smooth",
+          });
 
-        return waitForScrollEnd(element);
+          const scrollingEl =
+            document.scrollingElement || document.documentElement;
+          return window.waitForElementScrollEnd(scrollingEl as HTMLElement);
+        } else {
+          height = element.getBoundingClientRect().height;
+          element.scrollBy({
+            top: height,
+            left: 0,
+            behavior: "smooth",
+          });
+
+          return window.waitForElementScrollEnd(element);
+        }
       },
-      undefined,
-      { timeout: 10_000 },
+      { xpath },
     );
   } catch (e) {
     logger({
@@ -297,7 +141,7 @@ export async function scrollToNextChunk(ctx: MethodHandlerContext) {
 }
 
 export async function scrollToPreviousChunk(ctx: MethodHandlerContext) {
-  const { locator, logger, xpath } = ctx;
+  const { stagehandPage, xpath, logger } = ctx;
 
   logger({
     category: "action",
@@ -309,41 +153,39 @@ export async function scrollToPreviousChunk(ctx: MethodHandlerContext) {
   });
 
   try {
-    await locator.evaluate(
-      (element) => {
-        const waitForScrollEnd = (el: HTMLElement | Element) =>
-          new Promise<void>((resolve) => {
-            let last = el.scrollTop ?? 0;
-            const check = () => {
-              const cur = el.scrollTop ?? 0;
-              if (cur === last) return resolve();
-              last = cur;
-              requestAnimationFrame(check);
-            };
-            requestAnimationFrame(check);
-          });
+    await stagehandPage.page.evaluate(
+      ({ xpath }) => {
+        const elementNode = getNodeFromXpath(xpath);
+        if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+          throw Error(`Could not locate element to scroll on.`);
+        }
 
+        const element = elementNode as HTMLElement;
         const tagName = element.tagName.toLowerCase();
+        let height: number;
 
         if (tagName === "html" || tagName === "body") {
-          const height = window.visualViewport?.height ?? window.innerHeight;
-          window.scrollBy({ top: -height, left: 0, behavior: "smooth" });
+          height = window.visualViewport.height;
+          window.scrollBy({
+            top: -height,
+            left: 0,
+            behavior: "smooth",
+          });
 
-          const rootScrollingEl = (document.scrollingElement ??
-            document.documentElement) as HTMLElement;
-
-          return waitForScrollEnd(rootScrollingEl);
+          const scrollingEl =
+            document.scrollingElement || document.documentElement;
+          return window.waitForElementScrollEnd(scrollingEl as HTMLElement);
+        } else {
+          height = element.getBoundingClientRect().height;
+          element.scrollBy({
+            top: -height,
+            left: 0,
+            behavior: "smooth",
+          });
+          return window.waitForElementScrollEnd(element);
         }
-        const height = (element as HTMLElement).getBoundingClientRect().height;
-        (element as HTMLElement).scrollBy({
-          top: -height,
-          left: 0,
-          behavior: "smooth",
-        });
-        return waitForScrollEnd(element);
       },
-      undefined,
-      { timeout: 10_000 },
+      { xpath },
     );
   } catch (e) {
     logger({
@@ -392,7 +234,7 @@ export async function scrollElementIntoView(ctx: MethodHandlerContext) {
 }
 
 export async function scrollElementToPercentage(ctx: MethodHandlerContext) {
-  const { args, xpath, logger, locator } = ctx;
+  const { args, stagehandPage, xpath, logger } = ctx;
 
   logger({
     category: "action",
@@ -407,14 +249,20 @@ export async function scrollElementToPercentage(ctx: MethodHandlerContext) {
   try {
     const [yArg = "0%"] = args as string[];
 
-    await locator.evaluate<void, { yArg: string }>(
-      (element, { yArg }) => {
+    await stagehandPage.page.evaluate(
+      ({ xpath, yArg }) => {
         function parsePercent(val: string): number {
           const cleaned = val.trim().replace("%", "");
           const num = parseFloat(cleaned);
           return Number.isNaN(num) ? 0 : Math.max(0, Math.min(num, 100));
         }
 
+        const elementNode = getNodeFromXpath(xpath);
+        if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+          throw Error(`Could not locate element to scroll on.`);
+        }
+
+        const element = elementNode as HTMLElement;
         const yPct = parsePercent(yArg);
 
         if (element.tagName.toLowerCase() === "html") {
@@ -437,8 +285,7 @@ export async function scrollElementToPercentage(ctx: MethodHandlerContext) {
           });
         }
       },
-      { yArg },
-      { timeout: 10_000 },
+      { xpath, yArg },
     );
   } catch (e) {
     logger({

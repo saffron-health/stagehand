@@ -782,9 +782,17 @@ ${scriptContent} \
       }
 
       const requestId = Math.random().toString(36).substring(2);
-      const llmClient: LLMClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.llmClient;
+
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
+
+      // Add null check for llmClient before accessing modelName
+      if (!llmClient) {
+        throw new MissingLLMConfigurationError();
+      }
 
       this.stagehand.log({
         category: "act",
@@ -881,9 +889,17 @@ ${scriptContent} \
       }
 
       const requestId = Math.random().toString(36).substring(2);
-      const llmClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.llmClient;
+
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
+
+      // Add null check for llmClient before accessing modelName
+      if (!llmClient) {
+        throw new MissingLLMConfigurationError();
+      }
 
       this.stagehand.log({
         category: "extract",
@@ -990,9 +1006,17 @@ ${scriptContent} \
       }
 
       const requestId = Math.random().toString(36).substring(2);
-      const llmClient = modelName
-        ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
-        : this.llmClient;
+
+      // Use provided modelName if available AND if modelClientOptions has an API key, otherwise use the configured llmClient
+      const llmClient =
+        modelName && modelClientOptions?.apiKey
+          ? this.stagehand.llmProvider.getClient(modelName, modelClientOptions)
+          : this.stagehand.llmClient;
+
+      // Add null check for llmClient before accessing modelName
+      if (!llmClient) {
+        throw new MissingLLMConfigurationError();
+      }
 
       this.stagehand.log({
         category: "observe",
