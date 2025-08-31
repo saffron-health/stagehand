@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { ZodError } from "zod/v3";
 import { STAGEHAND_VERSION } from "../lib/version.js";
 
 export class StagehandError extends Error {
@@ -227,5 +227,49 @@ ${JSON.stringify(issues, null, 2)}`);
 export class StagehandInitError extends StagehandError {
   constructor(message: string) {
     super(message);
+  }
+}
+
+export class MCPConnectionError extends StagehandError {
+  public readonly serverUrl: string;
+  public readonly originalError: unknown;
+
+  constructor(serverUrl: string, originalError: unknown) {
+    const errorMessage =
+      originalError instanceof Error
+        ? originalError.message
+        : String(originalError);
+
+    super(
+      `Failed to connect to MCP server at "${serverUrl}". ${errorMessage}. ` +
+        `Please verify the server URL is correct and the server is running.`,
+    );
+
+    this.serverUrl = serverUrl;
+    this.originalError = originalError;
+  }
+}
+
+export class StagehandShadowRootMissingError extends StagehandError {
+  constructor(detail?: string) {
+    super(
+      `No shadow root present on the resolved host` +
+        (detail ? `: ${detail}` : ""),
+    );
+  }
+}
+
+export class StagehandShadowSegmentEmptyError extends StagehandError {
+  constructor() {
+    super(`Empty selector segment after shadow-DOM hop ("//")`);
+  }
+}
+
+export class StagehandShadowSegmentNotFoundError extends StagehandError {
+  constructor(segment: string, hint?: string) {
+    super(
+      `Shadow segment '${segment}' matched no element inside shadow root` +
+        (hint ? ` ${hint}` : ""),
+    );
   }
 }

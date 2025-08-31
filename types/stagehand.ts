@@ -1,11 +1,13 @@
 import Browserbase from "@browserbasehq/sdk";
-import { z } from "zod";
+import { Client } from "@modelcontextprotocol/sdk/dist/esm/client";
+import { ToolSet } from "ai";
+import { Cookie } from "playwright";
+import { z } from "zod/v3";
+import { LLMClient } from "../lib/llm/LLMClient";
 import { LLMProvider } from "../lib/llm/LLMProvider";
+import { AgentProviderType } from "./agent";
 import { LogLine } from "./log";
 import { AvailableModel, ClientOptions } from "./model";
-import { LLMClient } from "../lib/llm/LLMClient";
-import { Cookie } from "playwright";
-import { AgentProviderType } from "./agent";
 
 export interface ConstructorParams {
   /**
@@ -116,6 +118,7 @@ export interface ActOptions {
   domSettleTimeoutMs?: number;
   timeoutMs?: number;
   iframes?: boolean;
+  frameId?: string;
 }
 
 export interface ActResult {
@@ -136,6 +139,7 @@ export interface ExtractOptions<T extends z.AnyZodObject> {
   useTextExtract?: boolean;
   selector?: string;
   iframes?: boolean;
+  frameId?: string;
 }
 
 export type ExtractResult<T extends z.AnyZodObject> = z.infer<T>;
@@ -152,6 +156,7 @@ export interface ObserveOptions {
   onlyVisible?: boolean;
   drawOverlay?: boolean;
   iframes?: boolean;
+  frameId?: string;
 }
 
 export interface ObserveResult {
@@ -269,10 +274,19 @@ export interface AgentConfig {
    * Custom instructions to provide to the agent
    */
   instructions?: string;
+
   /**
    * Additional options to pass to the agent client
    */
   options?: Record<string, unknown>;
+  /**
+   * MCP integrations - Array of Client objects
+   */
+  integrations?: (Client | string)[];
+  /**
+   * Tools passed to the agent client
+   */
+  tools?: ToolSet;
 }
 
 export enum StagehandFunctionName {
