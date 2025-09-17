@@ -110,6 +110,7 @@ export function getAISDKLanguageModel(
   subModelName: string,
   apiKey?: string,
   clientOptions?: ClientOptions,
+  baseURL?: string,
 ) {
   // If this is a google model with vertex AI configuration, don't use AI SDK
   if (subProvider === "google" && isVertexAIRequest(clientOptions)) {
@@ -125,8 +126,12 @@ export function getAISDKLanguageModel(
         Object.keys(AISDKProvidersWithAPIKey),
       );
     }
-    // Create the provider instance with the API key
-    const provider = creator({ apiKey });
+    // Create the provider instance with the API key and baseURL if provided
+    const providerConfig: { apiKey: string; baseURL?: string } = { apiKey };
+    if (baseURL) {
+      providerConfig.baseURL = baseURL;
+    }
+    const provider = creator(providerConfig);
     // Get the specific model from the provider
     return provider(subModelName);
   } else {
@@ -196,6 +201,7 @@ export class LLMProvider {
         subModelName,
         clientOptions?.apiKey,
         clientOptions,
+        // clientOptions?.baseURL
       );
 
       return new AISdkClient({

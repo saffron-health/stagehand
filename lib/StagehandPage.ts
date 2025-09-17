@@ -1,6 +1,11 @@
 import type { CDPSession, Page as PlaywrightPage, Frame } from "playwright";
-import { z } from "zod";
-import { Page, defaultExtractSchema } from "../types/page";
+import { selectors } from "playwright";
+import { z } from "zod/v3";
+import {
+  Page,
+  defaultExtractSchema,
+  StagehandScreenshotOptions,
+} from "../types/page";
 import {
   ExtractOptions,
   ExtractResult,
@@ -119,18 +124,21 @@ export class StagehandPage {
         logger: this.stagehand.logger,
         stagehandPage: this,
         selfHeal: this.stagehand.selfHeal,
+        experimental: this.stagehand.experimental,
       });
       this.extractHandler = new StagehandExtractHandler({
         stagehand: this.stagehand,
         logger: this.stagehand.logger,
         stagehandPage: this,
         userProvidedInstructions,
+        experimental: this.stagehand.experimental,
       });
       this.observeHandler = new StagehandObserveHandler({
         stagehand: this.stagehand,
         logger: this.stagehand.logger,
         stagehandPage: this,
         userProvidedInstructions,
+        experimental: this.stagehand.experimental,
       });
     }
   }
@@ -183,6 +191,123 @@ ${scriptContent} \
             trace: { value: (err as Error).stack, type: "string" },
           },
         });
+        throw err;
+      }
+    }
+  }
+
+  /** Register the custom selector engine that pierces open/closed shadow roots. */
+  private async ensureStagehandSelectorEngine(): Promise<void> {
+    const registerFn = () => {
+      type Backdoor = {
+        getClosedRoot?: (host: Element) => ShadowRoot | undefined;
+      };
+
+      function parseSelector(input: string): { name: string; value: string } {
+        // Accept either:  "abc123"  → uses DEFAULT_ATTR
+        // or explicitly:  "data-__stagehand-id=abc123"
+        const raw = input.trim();
+        const eq = raw.indexOf("=");
+        if (eq === -1) {
+          return {
+            name: "data-__stagehand-id",
+            value: raw.replace(/^["']|["']$/g, ""),
+          };
+        }
+        const name = raw.slice(0, eq).trim();
+        const value = raw
+          .slice(eq + 1)
+          .trim()
+          .replace(/^["']|["']$/g, "");
+        return { name, value };
+      }
+
+      function pushChildren(node: Node, stack: Node[]): void {
+        if (node.nodeType === Node.DOCUMENT_NODE) {
+          const de = (node as Document).documentElement;
+          if (de) stack.push(de);
+          return;
+        }
+
+        if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+          const frag = node as DocumentFragment;
+          const hc = frag.children as HTMLCollection | undefined;
+          if (hc && hc.length) {
+            for (let i = hc.length - 1; i >= 0; i--)
+              stack.push(hc[i] as Element);
+          } else {
+            const cn = frag.childNodes;
+            for (let i = cn.length - 1; i >= 0; i--) stack.push(cn[i]);
+          }
+          return;
+        }
+
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as Element;
+          for (let i = el.children.length - 1; i >= 0; i--)
+            stack.push(el.children[i]);
+        }
+      }
+
+      function* traverseAllTrees(
+        start: Node,
+      ): Generator<Element, void, unknown> {
+        const backdoor = window.__stagehand__ as Backdoor | undefined;
+        const stack: Node[] = [];
+
+        if (start.nodeType === Node.DOCUMENT_NODE) {
+          const de = (start as Document).documentElement;
+          if (de) stack.push(de);
+        } else {
+          stack.push(start);
+        }
+
+        while (stack.length) {
+          const node = stack.pop()!;
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as Element;
+            yield el;
+
+            // open shadow
+            const open = el.shadowRoot as ShadowRoot | null;
+            if (open) stack.push(open);
+
+            // closed shadow via backdoor
+            const closed = backdoor?.getClosedRoot?.(el);
+            if (closed) stack.push(closed);
+          }
+          pushChildren(node, stack);
+        }
+      }
+
+      return {
+        query(root: Node, selector: string): Element | null {
+          const { name, value } = parseSelector(selector);
+          for (const el of traverseAllTrees(root)) {
+            if (el.getAttribute(name) === value) return el;
+          }
+          return null;
+        },
+        queryAll(root: Node, selector: string): Element[] {
+          const { name, value } = parseSelector(selector);
+          const out: Element[] = [];
+          for (const el of traverseAllTrees(root)) {
+            if (el.getAttribute(name) === value) out.push(el);
+          }
+          return out;
+        },
+      };
+    };
+
+    try {
+      await selectors.register("stagehand", registerFn);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.match(/selector engine has been already registered/)
+      ) {
+        // ignore
+      } else {
         throw err;
       }
     }
@@ -294,37 +419,41 @@ ${scriptContent} \
           }
 
           // Handle screenshots with CDP
-          if (prop === "screenshot" && this.stagehand.env === "BROWSERBASE") {
-            return async (
-              options: {
-                type?: "png" | "jpeg";
-                quality?: number;
-                fullPage?: boolean;
-                clip?: { x: number; y: number; width: number; height: number };
-                omitBackground?: boolean;
-              } = {},
-            ) => {
-              const cdpOptions: Record<string, unknown> = {
-                format: options.type === "jpeg" ? "jpeg" : "png",
-                quality: options.quality,
-                clip: options.clip,
-                omitBackground: options.omitBackground,
-                fromSurface: true,
-              };
+          if (prop === "screenshot") {
+            return async (options: StagehandScreenshotOptions = {}) => {
+              const rawScreenshot: typeof target.screenshot =
+                Object.getPrototypeOf(target).screenshot.bind(target);
 
-              if (options.fullPage) {
-                cdpOptions.captureBeyondViewport = true;
+              const {
+                useCDP = this.stagehand.env === "BROWSERBASE",
+                ...playwrightOptions
+              } = options;
+
+              if (useCDP && this.stagehand.env === "BROWSERBASE") {
+                const cdpOptions: Record<string, unknown> = {
+                  format: options.type === "jpeg" ? "jpeg" : "png",
+                  quality: options.quality,
+                  clip: options.clip,
+                  omitBackground: options.omitBackground,
+                  fromSurface: true,
+                };
+
+                if (options.fullPage) {
+                  cdpOptions.captureBeyondViewport = true;
+                }
+
+                const data = await this.sendCDP<{ data: string }>(
+                  "Page.captureScreenshot",
+                  cdpOptions,
+                );
+
+                // Convert base64 to buffer
+                const buffer = Buffer.from(data.data, "base64");
+
+                return buffer;
+              } else {
+                return await rawScreenshot(playwrightOptions);
               }
-
-              const data = await this.sendCDP<{ data: string }>(
-                "Page.captureScreenshot",
-                cdpOptions,
-              );
-
-              // Convert base64 to buffer
-              const buffer = Buffer.from(data.data, "base64");
-
-              return buffer;
             };
           }
 
@@ -410,6 +539,10 @@ ${scriptContent} \
       this.intContext.registerFrameId(rootId, this);
 
       this.intPage = new Proxy(page, handler) as unknown as Page;
+
+      // Ensure backdoor and selector engine are ready up front
+      await this.ensureStagehandSelectorEngine();
+
       this.initialized = true;
       return this;
     } catch (err: unknown) {
@@ -645,7 +778,12 @@ ${scriptContent} \
       const { action, modelName, modelClientOptions } = actionOrOptions;
 
       if (this.api) {
-        const opts = { ...actionOrOptions, frameId: this.rootFrameId };
+        const opts = {
+          ...actionOrOptions,
+          frameId: this.rootFrameId,
+          modelClientOptions:
+            modelClientOptions || this.stagehand["modelClientOptions"],
+        };
         const result = await this.api.act(opts);
         this.stagehand.addToHistory("act", actionOrOptions, result);
         return result;
@@ -747,7 +885,12 @@ ${scriptContent} \
       } = options;
 
       if (this.api) {
-        const opts = { ...options, frameId: this.rootFrameId };
+        const opts = {
+          ...options,
+          frameId: this.rootFrameId,
+          modelClientOptions:
+            modelClientOptions || this.stagehand["modelClientOptions"],
+        };
         const result = await this.api.extract<T>(opts);
         this.stagehand.addToHistory("extract", instructionOrOptions, result);
         return result;
@@ -859,7 +1002,12 @@ ${scriptContent} \
       } = options;
 
       if (this.api) {
-        const opts = { ...options, frameId: this.rootFrameId };
+        const opts = {
+          ...options,
+          frameId: this.rootFrameId,
+          modelClientOptions:
+            modelClientOptions || this.stagehand["modelClientOptions"],
+        };
         const result = await this.api.observe(opts);
         this.stagehand.addToHistory("observe", instructionOrOptions, result);
         return result;
