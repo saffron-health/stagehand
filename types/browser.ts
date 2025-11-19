@@ -1,12 +1,11 @@
 import { Browser, BrowserContext } from "./page";
 
 export interface BrowserResult {
-  env: "LOCAL" | "BROWSERBASE" | "BROWSERSERVER";
+  env: "LOCAL" | "BROWSERBASE";
   browser?: Browser;
-  context?: BrowserContext;
+  context: BrowserContext;
   debugUrl?: string;
   sessionUrl?: string;
   contextPath?: string;
   sessionId?: string;
-  browserServer?: unknown;
 }

@@ -9,33 +9,11 @@ import { AgentProviderType } from "./agent";
 import { LogLine } from "./log";
 import { AvailableModel, ClientOptions } from "./model";
 
-export interface BrowserServerOptions {
-  headless?: boolean;
-  port?: number;
-  host?: string;
-  args?: string[];
-  timeout?: number;
-  chromiumSandbox?: boolean;
-  devtools?: boolean;
-  downloadsPath?: string;
-  executablePath?: string;
-  handleSIGHUP?: boolean;
-  handleSIGINT?: boolean;
-  handleSIGTERM?: boolean;
-  ignoreDefaultArgs?: boolean | Array<string>;
-  proxy?: {
-    server: string;
-    bypass?: string;
-    username?: string;
-    password?: string;
-  };
-}
-
 export interface ConstructorParams {
   /**
    * The environment to use for Stagehand
    */
-  env: "LOCAL" | "BROWSERBASE" | "BROWSERSERVER";
+  env: "LOCAL" | "BROWSERBASE";
   /**
    * Your Browserbase API key
    */
@@ -44,16 +22,6 @@ export interface ConstructorParams {
    * Your Browserbase project ID
    */
   projectId?: string;
-  /**
-   * WebSocket endpoint for connecting to an existing browser server
-   * Only used when env is "BROWSERSERVER"
-   */
-  wsEndpoint?: string;
-  /**
-   * Options for launching a new browser server
-   * Only used when env is "BROWSERSERVER" and wsEndpoint is not provided
-   */
-  browserServerOptions?: BrowserServerOptions;
   /**
    * The verbosity of the Stagehand logger
    * 0 - No logs
